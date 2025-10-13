@@ -31,6 +31,7 @@ pub enum FFTConvolverProcessError {
 /// - After initialization with an impulse response, subsequent data portions of
 ///   arbitrary length can be convolved. The convolver internally can handle
 ///   this by using appropriate buffering.
+///
 /// - The convolver works without "latency" (except for the required
 ///   processing time, of course), i.e. the output always is the convolved
 ///   input for each processing call.
@@ -172,6 +173,8 @@ impl<F: FftNum> FFTConvolver<F> {
         input: &[F],
         output: &mut [F],
     ) -> Result<(), FFTConvolverProcessError> {
+        profiling::function_scope!();
+
         if self.active_seg_count == 0 {
             output.fill(F::zero());
             return Ok(());
@@ -179,6 +182,8 @@ impl<F: FftNum> FFTConvolver<F> {
 
         let mut processed = 0;
         while processed < output.len() {
+            profiling::scope!("Process iteration");
+
             let input_buffer_was_empty = self.input_buffer_fill == 0;
             let processing = std::cmp::min(
                 output.len() - processed,
@@ -187,7 +192,7 @@ impl<F: FftNum> FFTConvolver<F> {
 
             let input_buffer_pos = self.input_buffer_fill;
             self.input_buffer[input_buffer_pos..input_buffer_pos + processing]
-                .clone_from_slice(&input[processed..processed + processing]);
+                .copy_from_slice(&input[processed..processed + processing]);
 
             // Forward FFT
             copy_and_pad(&mut self.fft_buffer, &self.input_buffer, self.block_size);
@@ -201,6 +206,8 @@ impl<F: FftNum> FFTConvolver<F> {
 
             // complex multiplication
             if input_buffer_was_empty {
+                profiling::scope!("case when input buffer was empty");
+
                 self.pre_multiplied.fill(Complex::zero());
                 for i in 1..self.active_seg_count {
                     let index_ir = i;
@@ -212,7 +219,8 @@ impl<F: FftNum> FFTConvolver<F> {
                     );
                 }
             }
-            self.conv.clone_from_slice(&self.pre_multiplied);
+
+            self.conv.copy_from_slice(&self.pre_multiplied);
             complex_multiply_accumulate(
                 &mut self.conv,
                 &self.segments[self.current],
@@ -240,7 +248,7 @@ impl<F: FftNum> FFTConvolver<F> {
                 self.input_buffer_fill = 0;
                 // Save the overlap
                 self.overlap
-                    .clone_from_slice(&self.fft_buffer[self.block_size..self.block_size * 2]);
+                    .copy_from_slice(&self.fft_buffer[self.block_size..self.block_size * 2]);
 
                 // Update the current segment
                 self.current = if self.current > 0 {

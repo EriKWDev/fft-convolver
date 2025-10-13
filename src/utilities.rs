@@ -16,17 +16,61 @@ pub fn complex_size(size: usize) -> usize {
 
 pub fn copy_and_pad<F: FftNum>(dst: &mut [F], src: &[F], src_size: usize) {
     assert!(dst.len() >= src_size);
-    dst[0..src_size].clone_from_slice(&src[0..src_size]);
-    dst[src_size..]
-        .iter_mut()
-        .for_each(|value| *value = F::zero());
+    dst[0..src_size].copy_from_slice(&src[0..src_size]);
+    dst[src_size..].fill(F::zero());
 }
 
-pub fn complex_multiply_accumulate<F: FftNum>(
+pub fn complex_multiply_accumulate_single<F: FftNum>(
     result: &mut [Complex<F>],
     a: &[Complex<F>],
     b: &[Complex<F>],
 ) {
+    profiling::function_scope!();
+    assert_eq!(result.len(), a.len());
+    assert_eq!(result.len(), b.len());
+
+    unsafe {
+        let len = result.len();
+        for i in 0..len {
+            let r = result.get_unchecked_mut(i);
+            let a = a.get_unchecked(i);
+            let b = b.get_unchecked(i);
+
+            *r = *r + (*a * *b);
+
+            // *r += (*a * *b);
+            // r.re = r.re + (a.re * b.re - a.im * b.im);
+            // r.im = r.im + (a.re * b.im + a.im * b.re);
+        }
+    }
+}
+
+pub fn complex_multiply_accumulate_single_f32(
+    result: &mut [Complex<f32>],
+    a: &[Complex<f32>],
+    b: &[Complex<f32>],
+) {
+    profiling::function_scope!();
+    assert_eq!(result.len(), a.len());
+    assert_eq!(result.len(), b.len());
+    unsafe {
+        let len = result.len();
+        for i in 0..len {
+            let r = result.get_unchecked_mut(i);
+            let a = a.get_unchecked(i);
+            let b = b.get_unchecked(i);
+            r.re = r.re + (a.re * b.re - a.im * b.im);
+            r.im = r.im + (a.re * b.im + a.im * b.re);
+        }
+    }
+}
+
+pub fn complex_multiply_accumulate_step_by_4<F: FftNum>(
+    result: &mut [Complex<F>],
+    a: &[Complex<F>],
+    b: &[Complex<F>],
+) {
+    profiling::function_scope!();
     assert_eq!(result.len(), a.len());
     assert_eq!(result.len(), b.len());
     let len = result.len();
@@ -55,7 +99,20 @@ pub fn complex_multiply_accumulate<F: FftNum>(
     }
 }
 
-pub fn sum<F: FftNum>(result: &mut [F], a: &[F], b: &[F]) {
+#[inline(always)]
+pub fn complex_multiply_accumulate<F: FftNum>(
+    result: &mut [Complex<F>],
+    a: &[Complex<F>],
+    b: &[Complex<F>],
+) {
+    complex_multiply_accumulate_single(result, a, b);
+    // complex_multiply_accumulate_step_by_4(result, a, b);
+}
+
+#[inline(always)]
+pub fn sum_step_by_4<F: FftNum>(result: &mut [F], a: &[F], b: &[F]) {
+    profiling::function_scope!();
+
     assert_eq!(result.len(), a.len());
     assert_eq!(result.len(), b.len());
     let len = result.len();
@@ -69,6 +126,28 @@ pub fn sum<F: FftNum>(result: &mut [F], a: &[F], b: &[F]) {
     for i in end4..len {
         result[i] = a[i] + b[i];
     }
+}
+
+pub fn sum_single<F: FftNum>(result: &mut [F], a: &[F], b: &[F]) {
+    profiling::function_scope!();
+    assert_eq!(result.len(), a.len());
+    assert_eq!(result.len(), b.len());
+    unsafe {
+        let len = result.len();
+        for i in 0..len {
+            let r = result.get_unchecked_mut(i);
+            let a = *a.get_unchecked(i);
+            let b = *b.get_unchecked(i);
+
+            *r = a + b;
+        }
+    }
+}
+
+#[inline(always)]
+pub fn sum<F: FftNum>(result: &mut [F], a: &[F], b: &[F]) {
+    // sum_single(result, a, b);
+    sum_step_by_4(result, a, b);
 }
 
 #[cfg(test)]

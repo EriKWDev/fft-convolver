@@ -16,6 +16,6 @@ homepage = "https://neodsp.com/"
 [dependencies]
 realfft = "3"
 rustfft = "6"
-thiserror = "1"
-num = "0.4.1"
+thiserror = "2"
+num = "0.4"
 profiling = "*"
